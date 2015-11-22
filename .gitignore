@@ -1,0 +1,6 @@
+*.o
+*.in
+*.out
+*.out~
+*.zip
+*.swp
