@@ -1,6 +1,6 @@
+test*
 *.o
-*.in
-*.out
+*.in~
 *.out~
 *.zip
 *.swp

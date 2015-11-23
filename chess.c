@@ -1394,7 +1394,8 @@ int read_table(FILE *stream, TABLE *table){
 		table->turn = token[0];
 		token = strtok(NULL, DELIMITERS);
 
-		table->castling = strdup(token);
+		table->castling = (char*)malloc(sizeof(char) * 5);
+		strcpy(table->castling, token);
 		token = strtok(NULL, DELIMITERS);
 
 		table->en_passant = strdup(token);
@@ -1405,7 +1406,7 @@ int read_table(FILE *stream, TABLE *table){
 
 		table->cur_turn = atoi(token);
 
-		cur_side = (WHITES_TURN)? WHITES_SIDE : BLACKS_SIDE;
+		cur_side = (table->turn == WHITES_TURN)? WHITES_SIDE : BLACKS_SIDE;
 		for(i = 0; i < 8; i++){
 			for(j = 0; j < 8; j++){
 				if(table->grid[i][j] != NULL && table->grid[i][j]->move == &move_king && table->grid[i][j]->side == cur_side){
@@ -1424,16 +1425,31 @@ int read_table(FILE *stream, TABLE *table){
 	return 1;
 }
 
+char *dupe_move(TABLE *table){
+	table->turn = (table->turn == WHITES_TURN)? BLACKS_TURN : WHITES_TURN;
+	table->half_turns--;
+	if(table->turn == BLACKS_TURN) table->cur_turn--;
+	char *dupe = (char*)malloc(sizeof(char)*5);
+	sprintf(dupe, "%c%d%c%d", table->turn_king->file, table->turn_king->rank, table->turn_king->file, table->turn_king->rank);
+	return dupe;
+}
+
+// to do
 int is_valid_movement(char orig_file, int orig_rank, char dest_file, int dest_rank, TABLE *table){
+	if(orig_file < 'a' || orig_file > 'h' || orig_rank < 1 || orig_rank > 8) return 0;
+	if(dest_file < 'a' || dest_file > 'h' || dest_rank < 1 || dest_rank > 8) return 0;
+	if(table->grid[8-orig_rank][orig_file-'a'] == NULL) return 0;
 	return 1;
 }
 
 int move_piece(char *movement, TABLE *table){
-	int orig_rank, dest_rank, i, j;
-	char orig_file, dest_file, promotion;
+	int orig_rank, dest_rank, i, j,/* b_counter, n_counter, B_counter, N_counter,*/ mirror, turn_side;
+	char orig_file, dest_file, promotion, search_castling;
 	PIECE *piece;
 	PIECE_LIST *list;
 	QUEUE *queue;
+
+	mirror = (table->turn == WHITES_TURN)? 1 : -1;
 
 	orig_file = movement[0];
 	orig_rank = movement[1] - '0';
@@ -1442,18 +1458,48 @@ int move_piece(char *movement, TABLE *table){
 	piece = table->grid[8-orig_rank][orig_file-'a'];
 	if(piece != NULL && piece->move == move_pawn)
 		promotion = movement[4];
+	else promotion = '\0';
 
 	if(!is_valid_movement(orig_file, orig_rank, dest_file, dest_rank, table)){
 		printf("Movimento invalido. Tente novamente.\n");
 		return 1;
 	}
-	// Realiza o movimento
+	// Retira a peça de sua origem
 	table->grid[8-orig_rank][orig_file-'a'] = NULL;
 	// Analisa se é necessário resetar a contagem de meio-turnos
-	if(piece->move == move_pawn || table->grid[8-dest_rank][dest_file-'a']) table->half_turns = -1;
+	if(piece->move == move_pawn || table->grid[8-dest_rank][dest_file-'a'] != NULL) table->half_turns = -1;
+	// Apaga a peça capturada, caso seja uma captura
 	if(table->grid[8-dest_rank][dest_file-'a']) delete_piece(&table->grid[8-dest_rank][dest_file-'a']);
-	// Inserir aqui analise de captura en-passant e de movimento do roque
+	// Apaga a peça capturada, caso seja uma captura en passant
+	if(table->en_passant[0] != '-'){
+		if(dest_file == table->en_passant[0] && dest_rank == table->en_passant[1]-'0')
+			table->grid[8-(dest_rank-mirror)][dest_file-'a'] = NULL;
+	}
+	// Move a peça para o destino
 	table->grid[8-dest_rank][dest_file-'a'] = piece;
+	// Se a jogada realizada foi um roque, move também a torre correspondente
+	if(piece->move == move_king &&  piece->file == 'e'
+	   && ((piece->side == WHITES_SIDE && piece->rank == 1) || (piece->side == BLACKS_SIDE && piece->rank == 8))){
+	   	search_castling = '\0';
+		if(dest_file == 'c') search_castling = W_QUEEN;
+		if(dest_file == 'g') search_castling = W_KING;
+		if(piece->side == BLACKS_SIDE) search_castling = tolower(search_castling);
+		if(search_castling != '\0'){
+			for(i = 0; table->castling[i] != '\0'; i++){
+				if(table->castling[i] == search_castling){
+					if(dest_file == 'c'){
+						table->grid[8-piece->rank][dest_file+1-'a'] = table->grid[8-piece->rank][0];
+						table->grid[8-piece->rank][0] = NULL;
+						table->grid[8-piece->rank][dest_file+1-'a']->file = dest_file+1;
+					}else{
+						table->grid[8-piece->rank][dest_file-1-'a'] = table->grid[8-piece->rank][7];
+						table->grid[8-piece->rank][7] = NULL;
+						table->grid[8-piece->rank][dest_file-1-'a']->file = dest_file-1;
+					}
+				}
+			}
+		}
+	}
 	// Atualiza os valores da peça movida
 	piece->rank = dest_rank;
 	piece->file = dest_file;
@@ -1485,14 +1531,80 @@ int move_piece(char *movement, TABLE *table){
 				break;
 		}
 	}
+	// Altera a string de captura en passant se necessário
+	free(table->en_passant);
+	if(piece->move == move_pawn && dest_rank == (orig_rank + 2*mirror)){
+		table->en_passant = (char*)malloc(sizeof(char) * 3);
+		sprintf(table->en_passant, "%c%d", dest_file, dest_rank-mirror);
+	}else{
+		table->en_passant = strdup("-");
+	}
+	// Altera a string de roque se necessário
+	if(piece->move == move_king && (dest_file != orig_file || dest_rank != orig_rank)){
+		if(piece->side == WHITES_SIDE){
+			for(i = 0; table->castling[i] != '\0'; i++){
+				if(isupper(table->castling[i])){
+					for(j = i; table->castling[j] != '\0'; j++)
+						table->castling[j] = table->castling[j+1];
+					i--;
+				}
+			}
+		}else{
+			for(i = 0; table->castling[i] != '\0'; i++){
+				if(islower(table->castling[i])){
+					for(j = i; table->castling[j] != '\0'; j++)
+						table->castling[j] = table->castling[j+1];
+					i--;
+				}
+			}
+		}
+		if(table->castling[0] == '\0') table->castling[0] = '-';
+	}
+	if(table->grid[0][0] == NULL || table->grid[0][0]->move != move_rook){
+		for(i = 0; table->castling[i] != '\0'; i++){
+			if(table->castling[i] == B_QUEEN){
+				for(j = i; table->castling[j] != '\0'; j++)
+					table->castling[j] = table->castling[j+1];
+				i--;
+			}
+		}
+	}
+	if(table->grid[0][7] == NULL || table->grid[0][7]->move != move_rook){
+		for(i = 0; table->castling[i] != '\0'; i++){
+			if(table->castling[i] == B_KING){
+				for(j = i; table->castling[j] != '\0'; j++)
+					table->castling[j] = table->castling[j+1];
+				i--;
+			}
+		}
+	}
+	if(table->grid[7][0] == NULL || table->grid[7][0]->move != move_rook){
+		for(i = 0; table->castling[i] != '\0'; i++){
+			if(table->castling[i] == W_QUEEN){
+				for(j = i; table->castling[j] != '\0'; j++)
+					table->castling[j] = table->castling[j+1];
+				i--;
+			}
+		}
+	}
+	if(table->grid[7][7] == NULL || table->grid[7][7]->move != move_rook){
+		for(i = 0; table->castling[i] != '\0'; i++){
+			if(table->castling[i] == W_KING){
+				for(j = i; table->castling[j] != '\0'; j++)
+					table->castling[j] = table->castling[j+1];
+				i--;
+			}
+		}
+	}
 	// Altera os valores relativos à contagem de turnos
 	table->turn = (table->turn == WHITES_TURN)? BLACKS_TURN : WHITES_TURN;
 	table->half_turns++;
 	if(table->turn == WHITES_TURN) table->cur_turn++;
 	// Busca a posição do rei do jogador atual
+	turn_side = (table->turn == WHITES_TURN)? WHITES_SIDE : BLACKS_SIDE;
 	for(i = 0; i < 8; i++){
 		for(j = 0; j < 8; j++){
-			if(table->grid[i][j] != NULL && table->grid[i][j]->move == &move_king && table->grid[i][j]->side == table->turn){
+			if(table->grid[i][j] != NULL && table->grid[i][j]->move == &move_king && table->grid[i][j]->side == turn_side){
 				table->turn_king = table->grid[i][j];
 				i = 8;
 				j = 8;
@@ -1503,7 +1615,10 @@ int move_piece(char *movement, TABLE *table){
 	list = create_piece_list(table);
 	queue = create_queue();
 	list_moves(table, queue, list);
+fprintf(stdout, "%c at %c%d\n", table->grid[8-dest_rank][dest_file-'a']->name, dest_file, dest_rank);
+	delete_list(&list);
 	if(empty_queue(queue)){
+		print_fen(stdout, table);
 		delete_queue(&queue);
 		// Caso não tenha e esteja em cheque, exibe a mensagem de vitória
 		if(is_check(table))
@@ -1513,6 +1628,12 @@ int move_piece(char *movement, TABLE *table){
 			printf("Empate -- Afogamento\n");
 		return 0;
 	}else delete_queue(&queue);
+
+	if(table->half_turns >= 50){
+		print_fen(stdout, table);
+		printf("Empate -- Regra dos 50 Movimentos\n");
+		return 0;
+	}
 
 	return 1;
 }

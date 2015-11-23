@@ -9,9 +9,16 @@ int main(int argc, char *argv[]){
 	char *input;
 	TABLE *table = create_table();
 	read_table(stdin, table);
-	print_fen(stdout, table);
 
-	while(((input = my_get_line_valid(stdin, &aux)) != NULL) && move_piece(input, table));
+	input = dupe_move(table);
+	if(move_piece(input, table)){
+		print_fen(stdout, table);
+		free(input);
+		while(((input = my_get_line_valid(stdin, &aux)) != NULL) && move_piece(input, table)){
+			print_fen(stdout, table);
+			free(input);
+		}
+	}else free(input);
 	
 	delete_table(&table);
 

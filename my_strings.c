@@ -81,7 +81,7 @@ char *my_get_line_valid(FILE *stream, int *ending){
 		string[size++] = (char)input;
 		input = fgetc(stream);
 	}while(input != '\n' && input != EOF);
-	// Adicao o indicado de fim de string
+	// Adicao do indicador de fim de string
 	string = (char*)realloc(string, (size+1) * sizeof(char));
 	string[size] = '\0';
 
