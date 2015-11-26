@@ -714,7 +714,7 @@ void move_queen(TABLE *table, QUEUE *queue, PIECE *queen){
 					enqueue(queue, create_move(queen->name, queen->rank, queen->file, queen->rank, queen->file-side, 1, 0));
 				// Desfaz a jogada
 				table->grid[8-queen->rank][queen->file-'a'] = queen;
-				table->grid[8-queen->rank][queen->file-side-'a'] = aux2;
+				table->grid[8-queen->rank][queen->file-side-'a'] = aux3;
 				flag3 = 0;
 			}else{
 				table->grid[8-queen->rank][queen->file-side-'a'] = queen;
@@ -1442,8 +1442,41 @@ int is_valid_movement(char orig_file, int orig_rank, char dest_file, int dest_ra
 	return 1;
 }
 
+int enough_pieces(TABLE *table){
+	int i, j, b_counter = 0, n_counter = 0, B_counter = 0, N_counter = 0;
+	for(i = 0; i < 8; i++){
+		for(j = 0; j < 8; j++){
+			if(table->grid[i][j] != NULL){
+				if(table->grid[i][j]->move == move_pawn ||
+				   table->grid[i][j]->move == move_rook ||
+				   table->grid[i][j]->move == move_queen)
+					return 1;
+				else{
+					if(table->grid[i][j]->name == B_BISHOP) b_counter++;
+					if(table->grid[i][j]->name == W_BISHOP) B_counter++;
+					if(table->grid[i][j]->name == B_KNIGHT) n_counter++;
+					if(table->grid[i][j]->name == W_KNIGHT) N_counter++;
+				}
+			}
+		}
+	}
+	if(b_counter == 0 && B_counter == 0 && N_counter == 0 && n_counter == 0) return 0;
+	else{
+		if(b_counter == 0 && n_counter == 0){
+			if((B_counter != 0 && N_counter == 0) || (B_counter == 0 && N_counter != 0))
+				return 0;
+		}
+		if(B_counter == 0 && N_counter == 0){
+			if((b_counter != 0 && n_counter == 0) || (b_counter == 0 && n_counter != 0))
+				return 0;
+		}
+	}
+
+	return 1;
+}
+
 int move_piece(char *movement, TABLE *table){
-	int orig_rank, dest_rank, i, j,/* b_counter, n_counter, B_counter, N_counter,*/ mirror, turn_side;
+	int orig_rank, dest_rank, i, j, mirror, turn_side, dupe;
 	char orig_file, dest_file, promotion, search_castling;
 	PIECE *piece;
 	PIECE_LIST *list;
@@ -1455,6 +1488,7 @@ int move_piece(char *movement, TABLE *table){
 	orig_rank = movement[1] - '0';
 	dest_file = movement[2];
 	dest_rank = movement[3] - '0';
+	dupe = (dest_rank == orig_rank && dest_file == orig_file)? 1: 0;
 	piece = table->grid[8-orig_rank][orig_file-'a'];
 	if(piece != NULL && piece->move == move_pawn)
 		promotion = movement[4];
@@ -1469,10 +1503,10 @@ int move_piece(char *movement, TABLE *table){
 	// Analisa se é necessário resetar a contagem de meio-turnos
 	if(piece->move == move_pawn || table->grid[8-dest_rank][dest_file-'a'] != NULL) table->half_turns = -1;
 	// Apaga a peça capturada, caso seja uma captura
-	if(table->grid[8-dest_rank][dest_file-'a']) delete_piece(&table->grid[8-dest_rank][dest_file-'a']);
+	if(!dupe && table->grid[8-dest_rank][dest_file-'a'] != NULL) delete_piece(&table->grid[8-dest_rank][dest_file-'a']);
 	// Apaga a peça capturada, caso seja uma captura en passant
 	if(table->en_passant[0] != '-'){
-		if(dest_file == table->en_passant[0] && dest_rank == table->en_passant[1]-'0')
+		if(piece->move == move_pawn && dest_file == table->en_passant[0] && dest_rank == table->en_passant[1]-'0')
 			table->grid[8-(dest_rank-mirror)][dest_file-'a'] = NULL;
 	}
 	// Move a peça para o destino
@@ -1480,17 +1514,22 @@ int move_piece(char *movement, TABLE *table){
 	// Se a jogada realizada foi um roque, move também a torre correspondente
 	if(piece->move == move_king &&  piece->file == 'e'
 	   && ((piece->side == WHITES_SIDE && piece->rank == 1) || (piece->side == BLACKS_SIDE && piece->rank == 8))){
+	   	// Analisa qual o caracter indicativo do roque sendo realizado
 	   	search_castling = '\0';
 		if(dest_file == 'c') search_castling = W_QUEEN;
 		if(dest_file == 'g') search_castling = W_KING;
 		if(piece->side == BLACKS_SIDE) search_castling = tolower(search_castling);
+		// Se a jogada realizada não for um possível roque, search_castling valera '\0'
 		if(search_castling != '\0'){
+			// Busca o caracter indicativo na string do tabuleiro
 			for(i = 0; table->castling[i] != '\0'; i++){
 				if(table->castling[i] == search_castling){
+					// Caso tenha sido encontrado realiza o roque da rainha
 					if(dest_file == 'c'){
 						table->grid[8-piece->rank][dest_file+1-'a'] = table->grid[8-piece->rank][0];
 						table->grid[8-piece->rank][0] = NULL;
 						table->grid[8-piece->rank][dest_file+1-'a']->file = dest_file+1;
+					// ou do rei
 					}else{
 						table->grid[8-piece->rank][dest_file-1-'a'] = table->grid[8-piece->rank][7];
 						table->grid[8-piece->rank][7] = NULL;
@@ -1500,7 +1539,7 @@ int move_piece(char *movement, TABLE *table){
 			}
 		}
 	}
-	// Atualiza os valores da peça movida
+	// Atualiza os valores da peça movida em caso de promoção
 	piece->rank = dest_rank;
 	piece->file = dest_file;
 	if(promotion != '\0'){
@@ -1540,7 +1579,8 @@ int move_piece(char *movement, TABLE *table){
 		table->en_passant = strdup("-");
 	}
 	// Altera a string de roque se necessário
-	if(piece->move == move_king && (dest_file != orig_file || dest_rank != orig_rank)){
+	// Se o rei tiver sido movido, apaga todas as possibilidades de roque
+	if(!dupe && piece->move == move_king && (dest_file != orig_file || dest_rank != orig_rank)){
 		if(piece->side == WHITES_SIDE){
 			for(i = 0; table->castling[i] != '\0'; i++){
 				if(isupper(table->castling[i])){
@@ -1560,7 +1600,9 @@ int move_piece(char *movement, TABLE *table){
 		}
 		if(table->castling[0] == '\0') table->castling[0] = '-';
 	}
-	if(table->grid[0][0] == NULL || table->grid[0][0]->move != move_rook){
+	// Analisa os quatro cantos do tabuleiro. Se algum deles não for uma torre do lado esperado,
+	// remove o caractere correspondente da string, caso exista
+	if(table->grid[0][0] == NULL || !(table->grid[0][0]->move == move_rook && table->grid[0][0]->side == BLACKS_SIDE)){
 		for(i = 0; table->castling[i] != '\0'; i++){
 			if(table->castling[i] == B_QUEEN){
 				for(j = i; table->castling[j] != '\0'; j++)
@@ -1569,7 +1611,7 @@ int move_piece(char *movement, TABLE *table){
 			}
 		}
 	}
-	if(table->grid[0][7] == NULL || table->grid[0][7]->move != move_rook){
+	if(table->grid[0][7] == NULL || !(table->grid[0][7]->move == move_rook && table->grid[0][7]->side == BLACKS_SIDE)){
 		for(i = 0; table->castling[i] != '\0'; i++){
 			if(table->castling[i] == B_KING){
 				for(j = i; table->castling[j] != '\0'; j++)
@@ -1578,7 +1620,7 @@ int move_piece(char *movement, TABLE *table){
 			}
 		}
 	}
-	if(table->grid[7][0] == NULL || table->grid[7][0]->move != move_rook){
+	if(table->grid[7][0] == NULL || !(table->grid[7][0]->move == move_rook && table->grid[7][0]->side == WHITES_SIDE)){
 		for(i = 0; table->castling[i] != '\0'; i++){
 			if(table->castling[i] == W_QUEEN){
 				for(j = i; table->castling[j] != '\0'; j++)
@@ -1587,7 +1629,7 @@ int move_piece(char *movement, TABLE *table){
 			}
 		}
 	}
-	if(table->grid[7][7] == NULL || table->grid[7][7]->move != move_rook){
+	if(table->grid[7][7] == NULL || !(table->grid[7][7]->move == move_rook && table->grid[7][7]->side == WHITES_SIDE)){
 		for(i = 0; table->castling[i] != '\0'; i++){
 			if(table->castling[i] == W_KING){
 				for(j = i; table->castling[j] != '\0'; j++)
@@ -1615,7 +1657,7 @@ int move_piece(char *movement, TABLE *table){
 	list = create_piece_list(table);
 	queue = create_queue();
 	list_moves(table, queue, list);
-fprintf(stdout, "%c at %c%d\n", table->grid[8-dest_rank][dest_file-'a']->name, dest_file, dest_rank);
+//fprintf(stdout, "%c at %c%d\n", table->grid[8-dest_rank][dest_file-'a']->name, dest_file, dest_rank);
 	delete_list(&list);
 	if(empty_queue(queue)){
 		print_fen(stdout, table);
@@ -1632,6 +1674,12 @@ fprintf(stdout, "%c at %c%d\n", table->grid[8-dest_rank][dest_file-'a']->name, d
 	if(table->half_turns >= 50){
 		print_fen(stdout, table);
 		printf("Empate -- Regra dos 50 Movimentos\n");
+		return 0;
+	}
+
+	if(!enough_pieces(table)){
+		print_fen(stdout, table);
+		printf("Empate -- Falta de Material\n");
 		return 0;
 	}
 

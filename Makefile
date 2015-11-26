@@ -18,13 +18,13 @@ run: build
 
 debug: build
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./program < 1.in > test1.out
-	#diff 1.out test1.out
+	diff 1.out test1.out
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./program < 2.in > test2.out
 	diff 2.out test2.out
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./program < 3.in > test3.out
-	#diff 3.out test3.out
+	diff 3.out test3.out
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./program < 4.in > test4.out
-	#diff 4.out test4.out
+	diff 4.out test4.out
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./program < 5.in > test5.out
 	diff 5.out test5.out
 	valgrind --leak-check=full --show-leak-kinds=all --track-origins=yes ./program < 6.in > test6.out

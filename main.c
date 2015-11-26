@@ -18,6 +18,7 @@ int main(int argc, char *argv[]){
 			print_fen(stdout, table);
 			free(input);
 		}
+		if(input != NULL) free(input);
 	}else free(input);
 	
 	delete_table(&table);
